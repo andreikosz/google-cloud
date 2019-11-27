@@ -6,7 +6,6 @@ steps:
   args:
   - '-c'
   - |
-    gradle test bootJar && \
     mv ./build/libs/gradle-spring-boot.jar ./build/libs/gradle-spring-boot-${SHORT_SHA}.jar
 # Build the container image.
 - name: gcr.io/cloud-builders/docker
