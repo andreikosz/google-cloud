@@ -1,0 +1,66 @@
+steps:
+# Build the code.
+- name: gcr.io/cloud-builders/gradle
+  id: Build code
+  entrypoint: /bin/sh
+  args:
+  - '-c'
+  - |
+    gradle test bootJar && \
+    mv ./build/libs/gradle-spring-boot.jar ./build/libs/gradle-spring-boot-${SHORT_SHA}.jar
+
+# Build the container image.
+- name: gcr.io/cloud-builders/docker
+  id: Build image
+  args:
+  - 'build'
+  - '--build-arg'
+  - 'artifact=gradle-spring-boot-${SHORT_SHA}.jar'
+  - '--tag'
+  - 'gcr.io/$PROJECT_ID/gradle-spring-boot:${SHORT_SHA}'
+  - '.'
+  
+# Push the image to Container Registry
+- name: 'gcr.io/cloud-builders/docker'
+  id: Push image
+  args:
+  - 'push'
+  - 'gcr.io/$PROJECT_ID/gradle-spring-boot:$SHORT_SHA' 
+
+# Clone the pipeline repository
+- name: 'gcr.io/cloud-builders/gcloud'
+  id: Clone pipeline repository
+  entrypoint: /bin/sh
+  args:
+  - '-c'
+  - |
+    gcloud source repos clone pipeline && \
+    cd pipeline && \
+    git checkout candidate && \
+    git config user.email $(gcloud auth list --filter=status:ACTIVE --format='value(account)')
+
+# Generate the new manifest
+- name: 'gcr.io/cloud-builders/gcloud'
+  id: Generate manifest
+  entrypoint: /bin/sh
+  args:
+  - '-c'
+  - |
+     cd pipeline
+     sed "s/GOOGLE_CLOUD_PROJECT/${PROJECT_ID}/g" kubernetes.yaml.tpl | \
+     sed "s/COMMIT_SHA/${SHORT_SHA}/g" > kubernetes.yaml
+
+# Push the manifest back to pipeline
+- name: 'gcr.io/cloud-builders/gcloud'
+  id: Push manifest
+  entrypoint: /bin/sh
+  args:
+  - '-c'
+  - |
+    set -x && \
+    cd pipeline && \
+    git add kubernetes.yaml && \
+    git commit -m "Deploying image gcr.io/${PROJECT_ID}/gradle-spring-boot:${SHORT_SHA}
+    Built from commit ${COMMIT_SHA} of repository [REPOSITORY_URL]
+    Author: $(git log --format='%an <%ae>' -n 1 HEAD)" && \
+    git push origin candidate
